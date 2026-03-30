@@ -1,0 +1,6 @@
+app_image: redmine:latest
+app_name: redmine-app
+app_port: 80
+app_container_port: 3000
+db_adapter: postgresql
+db_port: 5432

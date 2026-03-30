@@ -1,0 +1,82 @@
+- name: Setup and deploy application
+  hosts: webservers
+
+  vars:
+    docker_users:
+      - "{{ ansible_user }}"
+    datadog_agent_major_version: 7
+    datadog_api_key: "{{ dd_api_key }}"
+    datadog_site: "datadoghq.com"
+    datadog_checks:
+      http_check:
+        instances:
+          - name: app_health_check
+            url: "http://localhost:{{ app_port }}"
+            timeout: 5
+            http_response_status_code: "200"
+            tags:
+              - "env:production"
+              - "app:redmine"
+
+  pre_tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+      tags:
+        - setup
+
+  roles:
+    - role: geerlingguy.docker
+      tags:
+        - setup
+        - docker
+
+    - role: datadog.datadog
+      tags:
+        - setup
+        - monitoring
+
+  tasks:
+    - name: Pull application image
+      community.docker.docker_image:
+        name: "{{ app_image }}"
+        source: pull
+      tags:
+        - deploy
+
+    - name: Stop existing application container
+      community.docker.docker_container:
+        name: "{{ app_name }}"
+        state: absent
+      tags:
+        - deploy
+
+    - name: Start application container
+      community.docker.docker_container:
+        name: "{{ app_name }}"
+        image: "{{ app_image }}"
+        state: started
+        restart_policy: always
+        ports:
+          - "{{ app_port }}:{{ app_container_port }}"
+        env:
+          REDMINE_DB_POSTGRES: "{{ db_host }}"
+          REDMINE_DB_PORT: "{{ db_port | string }}"
+          REDMINE_DB_DATABASE: "{{ db_name }}"
+          REDMINE_DB_USERNAME: "{{ db_user }}"
+          REDMINE_DB_PASSWORD: "{{ db_password }}"
+      tags:
+        - deploy
+
+    - name: Wait for application to become available
+      ansible.builtin.uri:
+        url: "http://localhost:{{ app_port }}"
+        status_code: 200
+      register: result
+      until: result.status == 200
+      retries: 30
+      delay: 5
+      tags:
+        - deploy
+        - healthcheck
